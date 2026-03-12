@@ -1,9 +1,9 @@
 #[derive(Default)]
-struct HLL {
+pub struct Hll {
     precision: u8,
 }
 
-impl HLL {
+impl Hll {
     pub fn new(precision: u8) -> Self {
         Self { precision }
     }
@@ -15,13 +15,13 @@ mod tests {
 
     #[test]
     fn default_hll_has_zero_precision() {
-        let value = HLL::default();
+        let value = Hll::default();
         assert_eq!(value.precision, 0);
     }
 
     #[test]
     fn new_sets_precision() {
-        let value = HLL::new(12);
+        let value = Hll::new(12);
         assert_eq!(value.precision, 12);
     }
 }

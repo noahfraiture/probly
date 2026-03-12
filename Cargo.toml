@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/probly-core",
+    "crates/probly-ffi",
+]
+resolver = "3"
