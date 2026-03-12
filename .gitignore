@@ -1,0 +1,8 @@
+# Local macOS metadata
+.DS_Store
+
+# Rust build artifacts
+target/
+
+# Lockfiles are typically not committed for library crates.
+Cargo.lock
