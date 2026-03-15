@@ -63,7 +63,7 @@ impl Bloom {
         }
 
         for bit in other.bits.iter_ones() {
-            self.bits.set(bit as usize, true);
+            self.bits.set(bit, true);
         }
 
         Ok(())
