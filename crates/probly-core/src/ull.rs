@@ -14,7 +14,7 @@ pub struct UltraLogLog {
 impl UltraLogLog {
     /// Creates an empty UltraLogLog sketch with `2^precision` compact registers.
     /// Each register stores a packed prefix representation rather than a plain HLL value.
-    fn new(precision: u8) -> Self {
+    pub fn new(precision: u8) -> Self {
         Self {
             precision,
             state: vec![0; 2usize.pow(precision as u32)],
@@ -23,13 +23,13 @@ impl UltraLogLog {
 
     /// Hashes a byte slice and folds the result into the packed ULL state.
     /// The update preserves the mergeable semantics of the sketch.
-    fn add(&mut self, value: &[u8]) {
+    pub fn add_bytes(&mut self, value: &[u8]) {
         self.add_hashed_value(xxh3::xxh3_64(value));
     }
 
     /// Hashes a typed value and inserts it into the sketch.
-    /// This is equivalent to calling `add` on the value's hashed bytes.
-    fn add_hash<T: Hash>(&mut self, value: &T) {
+    /// This is equivalent to calling `add_bytes` on the value's hashed bytes.
+    pub fn add<T: Hash>(&mut self, value: &T) {
         let mut hasher = xxh3::Xxh3Default::new();
         value.hash(&mut hasher);
         self.add_hashed_value(hasher.finish());
@@ -37,7 +37,7 @@ impl UltraLogLog {
 
     /// Merges another ULL sketch with matching precision into this one.
     /// Packed register prefixes are combined with bitwise union and then repacked.
-    fn merge(&mut self, other: &Self) -> Result<()> {
+    pub fn merge(&mut self, other: &Self) -> Result<()> {
         if self.precision != other.precision {
             return Err(crate::error::Error::PrecisionMismatch {
                 left: self.precision,
@@ -59,7 +59,7 @@ impl UltraLogLog {
 
     /// Estimates the distinct count represented by the sketch.
     /// The current implementation maps the packed ULL state back to HLL-style registers for estimation.
-    fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         if self.precision == 0 {
             return estimate_cardinality(&self.state);
         }
@@ -189,9 +189,9 @@ mod tests {
     fn add_is_idempotent_for_duplicate_values() {
         let mut value = UltraLogLog::new(10);
 
-        value.add_hash(&42_u64);
+        value.add(&42_u64);
         let snapshot = value.state.clone();
-        value.add_hash(&42_u64);
+        value.add(&42_u64);
 
         assert_eq!(value.state, snapshot);
     }
@@ -211,7 +211,7 @@ mod tests {
         let mut value = UltraLogLog::new(10);
 
         for i in 0_u64..2_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         let snapshot = value.state.clone();
@@ -234,9 +234,9 @@ mod tests {
 
         for i in 0_u64..2_000 {
             if i % 2 == 0 {
-                left.add_hash(&i);
+                left.add(&i);
             } else {
-                right.add_hash(&i);
+                right.add(&i);
             }
         }
 
@@ -257,9 +257,9 @@ mod tests {
 
         for i in 0_u64..3_000 {
             match i % 3 {
-                0 => a.add_hash(&i),
-                1 => b.add_hash(&i),
-                _ => c.add_hash(&i),
+                0 => a.add(&i),
+                1 => b.add(&i),
+                _ => c.add(&i),
             }
         }
 
@@ -286,11 +286,11 @@ mod tests {
         let mut reverse = UltraLogLog::new(10);
 
         for i in 0_u64..2_000 {
-            forward.add_hash(&i);
+            forward.add(&i);
         }
 
         for i in (0_u64..2_000).rev() {
-            reverse.add_hash(&i);
+            reverse.add(&i);
         }
 
         assert_eq!(forward.state, reverse.state);
@@ -302,7 +302,7 @@ mod tests {
         let mut value = UltraLogLog::new(10);
 
         for i in 0_u64..5_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert_canonical_state(&value.state);
@@ -315,9 +315,9 @@ mod tests {
 
         for i in 0_u64..4_000 {
             if i % 2 == 0 {
-                left.add_hash(&i);
+                left.add(&i);
             } else {
-                right.add_hash(&i);
+                right.add(&i);
             }
         }
 
@@ -338,7 +338,7 @@ mod tests {
         let mut value = UltraLogLog::new(0);
 
         for i in 0_u64..64 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert!(value.count() > 0);
@@ -349,9 +349,9 @@ mod tests {
         let mut value = UltraLogLog::new(10);
 
         for i in 0_u64..128 {
-            value.add_hash(&i);
-            value.add_hash(&i);
-            value.add_hash(&i);
+            value.add(&i);
+            value.add(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 128, 0.05);
@@ -363,7 +363,7 @@ mod tests {
         let mut previous = 0;
 
         for i in 0_u64..5_000 {
-            value.add_hash(&i);
+            value.add(&i);
             if i % 100 == 99 {
                 let current = value.count();
                 assert!(
@@ -380,7 +380,7 @@ mod tests {
         let mut value = UltraLogLog::new(10);
 
         for i in 0_u64..10_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 10_000, 0.10);
@@ -391,7 +391,7 @@ mod tests {
         let mut value = UltraLogLog::new(12);
 
         for i in 0_u64..100_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 100_000, 0.08);
@@ -414,7 +414,7 @@ mod tests {
         for (precision, cardinality, tolerance) in cases {
             let mut value = UltraLogLog::new(precision);
             for i in 0..cardinality as u64 {
-                value.add_hash(&i);
+                value.add(&i);
             }
             assert_count_within(value.count(), cardinality, tolerance);
         }
@@ -427,11 +427,11 @@ mod tests {
         let mut right = UltraLogLog::new(10);
 
         for i in 0_u64..6_000 {
-            merged.add_hash(&i);
+            merged.add(&i);
             if i % 2 == 0 {
-                left.add_hash(&i);
+                left.add(&i);
             } else {
-                right.add_hash(&i);
+                right.add(&i);
             }
         }
 
@@ -448,13 +448,13 @@ mod tests {
         let mut right = UltraLogLog::new(10);
 
         for i in 0_u64..1_500 {
-            merged.add_hash(&i);
-            left.add_hash(&i);
+            merged.add(&i);
+            left.add(&i);
         }
 
         for i in 1_000_u64..2_000 {
-            merged.add_hash(&i);
-            right.add_hash(&i);
+            merged.add(&i);
+            right.add(&i);
         }
 
         left.merge(&right).unwrap();
@@ -470,8 +470,8 @@ mod tests {
         let mut hll = Hll::new(10);
 
         for i in 0_u64..20_000 {
-            ull.add_hash(&i);
-            hll.add_hash(&i);
+            ull.add(&i);
+            hll.add(&i);
         }
 
         let ull_count = ull.count();

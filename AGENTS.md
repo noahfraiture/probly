@@ -21,6 +21,7 @@ Goal: provide small, mergeable streaming data structures (HLL, Bloom filter, Top
 - serialization / deserialization
 - safe Rust core, thin FFI layer
 - no panics across FFI
+- document public functions with concise Rustdoc comments
 
 ## API pattern
 Lifecycle for all primitives:

@@ -28,7 +28,7 @@ impl Default for Hll {
 impl Hll {
     /// Creates an empty HLL sketch in sparse mode.
     /// The sketch stays sparse until enough coupons accumulate to justify dense registers.
-    fn new(precision: u8) -> Self {
+    pub fn new(precision: u8) -> Self {
         Self {
             precision,
             storage: Storage::Sparse(Vec::new()),
@@ -37,13 +37,13 @@ impl Hll {
 
     /// Hashes a byte slice and inserts the resulting coupon or register update.
     /// Sparse sketches record distinct coupons, while dense sketches update registers in place.
-    fn add(&mut self, value: &[u8]) {
+    pub fn add_bytes(&mut self, value: &[u8]) {
         self.add_hashed_value(xxh3::xxh3_64(value));
     }
 
     /// Hashes a typed value and inserts it into the sketch.
-    /// This follows the same update path as `add` after hashing.
-    fn add_hash<T: Hash>(&mut self, value: &T) {
+    /// This follows the same update path as `add_bytes` after hashing.
+    pub fn add<T: Hash>(&mut self, value: &T) {
         let mut hasher = xxh3::Xxh3Default::new();
         value.hash(&mut hasher);
         self.add_hashed_value(hasher.finish());
@@ -51,7 +51,7 @@ impl Hll {
 
     /// Merges another HLL sketch with matching precision into this one.
     /// Sparse sketches merge by coupon union, and any dense participant forces dense materialization.
-    fn merge(&mut self, other: &Self) -> Result<()> {
+    pub fn merge(&mut self, other: &Self) -> Result<()> {
         if self.precision != other.precision {
             return Err(crate::error::Error::PrecisionMismatch {
                 left: self.precision,
@@ -86,7 +86,7 @@ impl Hll {
 
     /// Estimates the distinct count represented by the sketch.
     /// Sparse storage is materialized logically into dense registers before estimation.
-    fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         let registers = self.dense_registers();
         estimate_cardinality(&registers)
     }
@@ -278,7 +278,7 @@ mod tests {
         let mut value = Hll::new(10);
 
         for i in 0_u64..32 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert!(matches!(value.storage, Storage::Sparse(_)));
@@ -289,7 +289,7 @@ mod tests {
         let mut value = Hll::new(10);
 
         for i in 0_u64..1_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert!(matches!(value.storage, Storage::Dense(_)));
@@ -299,9 +299,9 @@ mod tests {
     fn add_same_value_twice_is_idempotent() {
         let mut value = Hll::new(10);
 
-        value.add_hash(&42_u64);
+        value.add(&42_u64);
         let snapshot = value.dense_registers();
-        value.add_hash(&42_u64);
+        value.add(&42_u64);
 
         assert_eq!(value.dense_registers(), snapshot);
     }
@@ -341,9 +341,9 @@ mod tests {
 
         for i in 0_u64..2_000 {
             if i % 2 == 0 {
-                left.add_hash(&i);
+                left.add(&i);
             } else {
-                right.add_hash(&i);
+                right.add(&i);
             }
         }
 
@@ -367,9 +367,9 @@ mod tests {
 
         for i in 0_u64..3_000 {
             match i % 3 {
-                0 => a.add_hash(&i),
-                1 => b.add_hash(&i),
-                _ => c.add_hash(&i),
+                0 => a.add(&i),
+                1 => b.add(&i),
+                _ => c.add(&i),
             }
         }
 
@@ -399,11 +399,11 @@ mod tests {
         let mut reverse = Hll::new(10);
 
         for i in 0_u64..2_000 {
-            forward.add_hash(&i);
+            forward.add(&i);
         }
 
         for i in (0_u64..2_000).rev() {
-            reverse.add_hash(&i);
+            reverse.add(&i);
         }
 
         assert_eq!(forward.dense_registers(), reverse.dense_registers());
@@ -422,9 +422,9 @@ mod tests {
         let mut value = Hll::new(10);
 
         for i in 0_u64..128 {
-            value.add_hash(&i);
-            value.add_hash(&i);
-            value.add_hash(&i);
+            value.add(&i);
+            value.add(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 128, 0.05);
@@ -436,7 +436,7 @@ mod tests {
         let mut previous = 0;
 
         for i in 0_u64..5_000 {
-            value.add_hash(&i);
+            value.add(&i);
             if i % 100 == 99 {
                 let current = value.count();
                 assert!(
@@ -453,7 +453,7 @@ mod tests {
         let mut value = Hll::new(10);
 
         for i in 0_u64..10_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 10_000, 0.07);
@@ -464,7 +464,7 @@ mod tests {
         let mut value = Hll::new(12);
 
         for i in 0_u64..100_000 {
-            value.add_hash(&i);
+            value.add(&i);
         }
 
         assert_count_within(value.count(), 100_000, 0.06);
@@ -477,11 +477,11 @@ mod tests {
         let mut right = Hll::new(10);
 
         for i in 0_u64..6_000 {
-            merged.add_hash(&i);
+            merged.add(&i);
             if i % 2 == 0 {
-                left.add_hash(&i);
+                left.add(&i);
             } else {
-                right.add_hash(&i);
+                right.add(&i);
             }
         }
 
