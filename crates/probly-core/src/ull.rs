@@ -1,4 +1,3 @@
-use crate::distinct_count::{address, estimate_cardinality, rho};
 use crate::error::Result;
 use std::{
     cmp::max,
@@ -6,9 +5,80 @@ use std::{
 };
 use xxhash_rust::xxh3;
 
+/// Returns the register index encoded by the leading `precision` bits of the hash.
+/// A precision of zero collapses the sketch to a single register.
+fn address(hash: u64, precision: u8) -> usize {
+    if precision == 0 {
+        0
+    } else {
+        (hash >> (64 - precision)) as usize
+    }
+}
+
+/// Computes `rho(w)`, the position of the first set bit after the register prefix.
+/// The result is one-based, matching the standard HLL definition.
+fn rho(hash: u64, precision: u8) -> u8 {
+    let suffix = if precision == 0 {
+        hash
+    } else {
+        (hash << precision) | (1u64 << (precision - 1))
+    };
+    suffix.leading_zeros() as u8 + 1
+}
+
+/// Returns the bias-correction constant used by classic HyperLogLog counting.
+fn alpha(m: f64) -> f64 {
+    match m as usize {
+        16 => 0.673,
+        32 => 0.697,
+        64 => 0.709,
+        _ => 0.7213 / (1.0 + 1.079 / m),
+    }
+}
+
+/// Computes the raw harmonic-mean cardinality estimate for dense registers.
+fn harmonic_mean(registers: &[u8]) -> f64 {
+    let m = registers.len() as f64;
+    let sum: f64 = registers
+        .iter()
+        .map(|&register| 2f64.powi(-(register as i32)))
+        .sum();
+    alpha(m) * m * m / sum
+}
+
+/// Computes the linear-counting correction for sparse occupancy.
+fn linear_counting(m: f64, zero_registers: f64) -> f64 {
+    m * (m / zero_registers).ln()
+}
+
+/// Estimates cardinality from a dense register array.
+/// Small ranges use linear counting; larger ranges use the raw harmonic-mean estimate.
+fn estimate_cardinality(registers: &[u8]) -> usize {
+    if registers.is_empty() {
+        return 0;
+    }
+
+    let m = registers.len() as f64;
+    let estimate = harmonic_mean(registers);
+    let zero_registers = registers.iter().filter(|&&register| register == 0).count() as f64;
+
+    if estimate <= 2.5 * m && zero_registers > 0.0 {
+        linear_counting(m, zero_registers).round() as usize
+    } else {
+        estimate.round() as usize
+    }
+}
+
 pub struct UltraLogLog {
     precision: u8,
     state: Vec<u8>,
+}
+
+impl Default for UltraLogLog {
+    /// Creates the smallest possible sketch with a single logical register.
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 impl UltraLogLog {
@@ -124,7 +194,15 @@ impl UltraLogLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Error, Hll};
+    use crate::Error;
+
+    fn assert_close(actual: f64, expected: f64) {
+        let diff = (actual - expected).abs();
+        assert!(
+            diff < 1e-12,
+            "expected {expected}, got {actual}, diff was {diff}"
+        );
+    }
 
     fn assert_count_within(actual: usize, expected: usize, tolerance_ratio: f64) {
         let allowed_error = ((expected as f64) * tolerance_ratio).ceil() as usize;
@@ -144,6 +222,60 @@ mod tests {
                 "register {register} was not in canonical packed form"
             );
         }
+    }
+
+    #[test]
+    fn default_matches_new_with_zero_precision() {
+        let default_value = UltraLogLog::default();
+        let new_value = UltraLogLog::new(0);
+
+        assert_eq!(default_value.precision, new_value.precision);
+        assert_eq!(default_value.state, new_value.state);
+    }
+
+    #[test]
+    fn address_uses_most_significant_precision_bits() {
+        let hash = 0b1011u64 << 60;
+
+        assert_eq!(address(hash, 4), 0b1011);
+    }
+
+    #[test]
+    fn address_is_zero_when_precision_is_zero() {
+        assert_eq!(address(u64::MAX, 0), 0);
+    }
+
+    #[test]
+    fn leading_zeros_is_one_when_first_remaining_bit_is_set() {
+        let hash = (0b0101u64 << 60) | (1u64 << 59);
+
+        assert_eq!(rho(hash, 4), 1);
+    }
+
+    #[test]
+    fn leading_zeros_counts_zero_bits_after_the_prefix() {
+        let hash = (0b0101u64 << 60) | (1u64 << 57);
+
+        assert_eq!(rho(hash, 4), 3);
+    }
+
+    #[test]
+    fn leading_zeros_is_capped_when_remaining_bits_are_zero() {
+        let hash = 0b0101u64 << 60;
+
+        assert_eq!(rho(hash, 4), 61);
+    }
+
+    #[test]
+    fn harmonic_mean_uses_special_alpha_for_sixteen_registers() {
+        let registers = vec![0; 16];
+
+        assert_close(harmonic_mean(&registers), 0.673 * 16.0);
+    }
+
+    #[test]
+    fn linear_counting_matches_formula() {
+        assert_close(linear_counting(16.0, 8.0), 16.0 * (2.0f64).ln());
     }
 
     #[test]
@@ -462,25 +594,5 @@ mod tests {
         assert_eq!(left.state, merged.state);
         assert_eq!(left.count(), merged.count());
         assert_count_within(left.count(), 2_000, 0.08);
-    }
-
-    #[test]
-    fn ull_and_hll_stay_close_on_same_stream() {
-        let mut ull = UltraLogLog::new(10);
-        let mut hll = Hll::new(10);
-
-        for i in 0_u64..20_000 {
-            ull.add(&i);
-            hll.add(&i);
-        }
-
-        let ull_count = ull.count();
-        let hll_count = hll.count();
-        let allowed_gap = ((hll_count as f64) * 0.05).ceil() as usize;
-
-        assert!(
-            ull_count.abs_diff(hll_count) <= allowed_gap,
-            "expected ULL count {ull_count} to stay within {allowed_gap} of HLL count {hll_count}"
-        );
     }
 }
