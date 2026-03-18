@@ -20,6 +20,11 @@ pub extern "C" fn probly_ull_new(precision: u8) -> *mut UltraLogLog {
 /// Adds a byte slice to a sketch through the C ABI.
 ///
 /// Returns `false` if `sketch` is null or if `value` is null while `len > 0`.
+///
+/// # Safety
+///
+/// `sketch` must point to a valid `UltraLogLog` allocated by `probly_ull_new`.
+/// If `len > 0`, `value` must be non-null and point to `len` readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probly_ull_add_bytes(
     sketch: *mut UltraLogLog,
@@ -46,6 +51,12 @@ pub unsafe extern "C" fn probly_ull_add_bytes(
 /// Merges `other` into `sketch` through the C ABI.
 ///
 /// Returns `false` on null pointers or precision mismatch.
+///
+/// # Safety
+///
+/// `sketch` must point to a valid mutable `UltraLogLog` allocated by
+/// `probly_ull_new`. `other` must point to a valid initialized `UltraLogLog`
+/// with the same precision for the merge to succeed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probly_ull_merge(
     sketch: *mut UltraLogLog,
@@ -64,6 +75,11 @@ pub unsafe extern "C" fn probly_ull_merge(
 /// Returns the approximate distinct count for a sketch through the C ABI.
 ///
 /// Null pointers return zero.
+///
+/// # Safety
+///
+/// If `sketch` is non-null, it must point to a valid initialized `UltraLogLog`
+/// allocated by `probly_ull_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probly_ull_count(sketch: *const UltraLogLog) -> usize {
     let Some(sketch) = (unsafe { sketch.as_ref() }) else {
@@ -74,6 +90,11 @@ pub unsafe extern "C" fn probly_ull_count(sketch: *const UltraLogLog) -> usize {
 }
 
 /// Frees a sketch previously allocated by `probly_ull_new`.
+///
+/// # Safety
+///
+/// `sketch` must either be null or a pointer returned by `probly_ull_new` that
+/// has not already been freed. Passing any other pointer is undefined behavior.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probly_ull_free(sketch: *mut UltraLogLog) {
     if sketch.is_null() {
